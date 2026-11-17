@@ -149,6 +149,16 @@ export default function App() {
     setToast("");
   };
 
+  const resetLevel = () => {
+    localStorage.removeItem(levelKey(mode));
+    setLevel(1);
+    setAnswer(pickAnswer(mode, 1));
+    setGuesses([]);
+    setCurrent("");
+    setStatus("playing");
+    setToast("");
+  };
+
   const changeMode = (m) => {
     if (m === mode) return;
     setMode(m);
@@ -184,7 +194,14 @@ export default function App() {
           ))}
         </div>
         <p>Рівень {level} — відгадай слово з {len} літер за {ROWS} спроб</p>
-        {import.meta.env.DEV && <p className="debug-word">Слово: {answer}</p>}
+        {import.meta.env.DEV && (
+          <p className="debug-word">
+            Слово: {answer}{" "}
+            <button className="debug-reset" onClick={resetLevel} title="Повернутись на 1 рівень">
+              ⟲ рівень 1
+            </button>
+          </p>
+        )}
       </header>
 
       <div className="toast" aria-live="polite">{toast && <span>{toast}</span>}</div>

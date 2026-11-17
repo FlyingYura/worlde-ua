@@ -65,6 +65,18 @@ header p { margin: 4px 0 0; color: var(--muted); font-size: 0.95rem; }
   color: #c46a8a;
   letter-spacing: 0.05em;
 }
+.debug-reset {
+  border: 1px dashed #c46a8a;
+  background: none;
+  color: #c46a8a;
+  border-radius: 999px;
+  padding: 1px 10px;
+  font-size: 0.75rem;
+  font-family: inherit;
+  cursor: pointer;
+  vertical-align: middle;
+}
+.debug-reset:hover { background: #c46a8a; color: #fff; }
 
 .toast { height: 36px; margin: 8px 0 4px; display: flex; align-items: center; }
 .toast span {
