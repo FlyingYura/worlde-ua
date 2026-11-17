@@ -32,6 +32,8 @@ const hashSeed = (s) => {
 
 const todayKey = () => Math.floor(Date.now() / 86400000);
 const levelKey = (m) => `wordle-level-${todayKey()}-${m}`;
+const hintKey = (m) => `wordle-hint-${todayKey()}-${m}`;
+const HINT_INTERVAL = 4; // 1 підказка на 4 рівні
 
 const pickAnswer = (len, level) => {
   const day = todayKey(); // змінюється раз на добу
@@ -71,9 +73,17 @@ export default function App() {
   const [status, setStatus] = useState("playing"); // playing | won | lost
   const [shake, setShake] = useState(false);
   const [toast, setToast] = useState("");
+  const [unlimited, setUnlimited] = useState(false); // безліміт спроб
+  const [free, setFree] = useState(false);           // довільні (не лише словникові) слова
+  const [hints, setHints] = useState(() => new Set()); // розкриті позиції слова
+  const [lastHintLevel, setLastHintLevel] = useState(() => {
+    const saved = Number(localStorage.getItem(hintKey(5)));
+    return saved > 0 ? saved : 0;
+  });
   const toastTimer = useRef();
 
   const len = mode;
+  const maxRows = unlimited ? Infinity : ROWS;
   const wordSet = useMemo(() => new Set(WORDS[mode]), [mode]);
 
   const showToast = (msg) => {
@@ -97,7 +107,7 @@ export default function App() {
       showToast("Недостатньо літер");
       return;
     }
-    if (!wordSet.has(current)) {
+    if (!free && !wordSet.has(current)) {
       setShake(true);
       setTimeout(() => setShake(false), 500);
       showToast("Такого слова немає в словнику");
@@ -108,10 +118,10 @@ export default function App() {
     setCurrent("");
     if (current === answer) {
       setTimeout(() => setStatus("won"), len * 300 + 400);
-    } else if (next.length === ROWS) {
+    } else if (next.length === ROWS && !unlimited) {
       setTimeout(() => setStatus("lost"), len * 300 + 400);
     }
-  }, [current, guesses, answer, len, wordSet]);
+  }, [current, guesses, answer, len, wordSet, free, unlimited]);
 
   const press = useCallback(
     (key) => {
@@ -138,43 +148,83 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [press]);
 
-  const restart = () => {
-    const next = level + 1;
-    setLevel(next);
-    localStorage.setItem(levelKey(mode), String(next));
-    setAnswer(pickAnswer(mode, next));
-    setGuesses([]);
-    setCurrent("");
-    setStatus("playing");
-    setToast("");
-  };
-
-  const resetLevel = () => {
-    localStorage.removeItem(levelKey(mode));
-    setLevel(1);
-    setAnswer(pickAnswer(mode, 1));
-    setGuesses([]);
-    setCurrent("");
-    setStatus("playing");
-    setToast("");
-  };
-
-  const changeMode = (m) => {
-    if (m === mode) return;
-    setMode(m);
-    const saved = Number(localStorage.getItem(levelKey(m)));
-    const lvl = saved > 0 ? saved : 1;
+  const newGame = (lvl, m = mode) => {
     setLevel(lvl);
     setAnswer(pickAnswer(m, lvl));
     setGuesses([]);
     setCurrent("");
     setStatus("playing");
+    setHints(new Set());
     setToast("");
   };
 
-  const rows = Array.from({ length: ROWS }, (_, r) => {
+  const restart = () => {
+    const next = level + 1;
+    localStorage.setItem(levelKey(mode), String(next));
+    newGame(next);
+  };
+
+  const resetLevel = () => {
+    localStorage.removeItem(levelKey(mode));
+    newGame(1);
+  };
+
+  const loadLevel = (m) => {
+    const saved = Number(localStorage.getItem(levelKey(m)));
+    return saved > 0 ? saved : 1;
+  };
+
+  const changeMode = (m) => {
+    if (m === mode) return;
+    setMode(m);
+    const lvl = loadLevel(m);
+    setLastHintLevel(Number(localStorage.getItem(hintKey(m))) || 0);
+    newGame(lvl, m);
+  };
+
+  // Перемикачі-режими: безліміт і довільні слова взаємовиключні
+  const toggleUnlimited = () => {
+    const next = !unlimited;
+    setUnlimited(next);
+    if (next) setFree(false);
+    setGuesses([]);
+    setCurrent("");
+    setStatus("playing");
+    setHints(new Set());
+  };
+
+  const toggleFree = () => {
+    const next = !free;
+    setFree(next);
+    if (next) setUnlimited(false);
+    setGuesses([]);
+    setCurrent("");
+    setStatus("playing");
+    setHints(new Set());
+  };
+
+  // Підказка: розкриває одну невідому літеру; доступна раз на HINT_INTERVAL рівнів
+  const canHint =
+    status === "playing" &&
+    hints.size < len &&
+    (lastHintLevel === 0 || level - lastHintLevel >= HINT_INTERVAL);
+
+  const useHint = () => {
+    if (!canHint) return;
+    const hidden = Array.from({ length: len }, (_, i) => i).filter((i) => !hints.has(i));
+    const pick = hidden[Math.floor(Math.random() * hidden.length)];
+    const next = new Set(hints);
+    next.add(pick);
+    setHints(next);
+    setLastHintLevel(level);
+    localStorage.setItem(hintKey(mode), String(level));
+    showToast(`Відкрито літеру: ${answer[pick].toUpperCase()}`);
+  };
+
+  const rowCount = unlimited ? guesses.length + 2 : ROWS;
+  const rows = Array.from({ length: rowCount }, (_, r) => {
     if (r < guesses.length) return { letters: guesses[r], states: evaluate(guesses[r], answer), done: true };
-    if (r === guesses.length) return { letters: current, states: [], done: false, active: true };
+    if (r === guesses.length) return { letters: current, states: [], done: false, active: status === "playing" };
     return { letters: "", states: [], done: false };
   });
 
@@ -193,7 +243,40 @@ export default function App() {
             </button>
           ))}
         </div>
-        <p>Рівень {level} — відгадай слово з {len} літер за {ROWS} спроб</p>
+        <div className="modes toggles" role="group" aria-label="Додаткові режими">
+          <button
+            className={"mode-btn toggle" + (unlimited ? " active" : "")}
+            onClick={toggleUnlimited}
+            aria-pressed={unlimited}
+          >
+            Безліміт спроб
+          </button>
+          <button
+            className={"mode-btn toggle" + (free ? " active" : "")}
+            onClick={toggleFree}
+            aria-pressed={free}
+          >
+            Довільні слова
+          </button>
+        </div>
+        <p>
+          Рівень {level} — відгадай слово з {len} літер{" "}
+          {unlimited ? "без обмеження спроб" : `за ${ROWS} спроб`}
+          {free ? ", можна вводити будь-які слова" : ""}
+        </p>
+        {hints.size > 0 && (
+          <div className="hints" aria-label="Підказки">
+            {Array.from({ length: len }, (_, i) => (
+              <span key={i} className={"hint-letter" + (hints.has(i) ? " revealed" : "")}>
+                {hints.has(i) ? answer[i].toUpperCase() : "·"}
+              </span>
+            ))}
+          </div>
+        )}
+        <button className="hint-btn" onClick={useHint} disabled={!canHint}
+          title={canHint ? "Відкрити одну літеру слова" : "Підказка буде доступна пізніше"}>
+          💡 Підказка{lastHintLevel > 0 ? ` (наступна через ${Math.max(0, HINT_INTERVAL - (level - lastHintLevel))} рівн.)` : ""}
+        </button>
         {import.meta.env.DEV && (
           <p className="debug-word">
             Слово: {answer}{" "}

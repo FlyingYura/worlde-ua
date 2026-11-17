@@ -57,6 +57,50 @@ h1 {
   border-color: #e8a0b4;
   color: #fff;
 }
+.mode-btn.toggle.active {
+  background: #8fb8de;
+  border-color: #8fb8de;
+}
+.modes.toggles { margin-top: 6px; }
+
+.hints {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+.hint-letter {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+  font-weight: 700;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+.hint-letter.revealed {
+  border-style: solid;
+  border-color: #d9a441;
+  background: #fdf3dd;
+  color: var(--text);
+}
+.hint-btn {
+  margin-top: 8px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 6px 16px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.hint-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 header p { margin: 4px 0 0; color: var(--muted); font-size: 0.95rem; }
 .debug-word {
   margin-top: 2px;
