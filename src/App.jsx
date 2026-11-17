@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { WORDS } from "./words.js";
 
-const ANSWER = "біфштекс"; // захардкоджене слово
-const LEN = ANSWER.length;
 const ROWS = 6;
+const MODES = [5, 6, 7];
 
 const KEYBOARD = [
   ["й", "ц", "у", "к", "е", "н", "г", "ш", "щ", "з", "х", "ї"],
@@ -20,15 +20,35 @@ const CODE_MAP = {
   Comma: "б", Period: "ю",
 };
 
-// Класичний алгоритм Wordle з правильною обробкою повторюваних літер
-function evaluate(guess) {
-  const result = Array(LEN).fill("absent");
-  const left = {};
-  for (let i = 0; i < LEN; i++) {
-    if (guess[i] === ANSWER[i]) result[i] = "correct";
-    else left[ANSWER[i]] = (left[ANSWER[i]] || 0) + 1;
+// Детермінований вибір слова: однаковий для всіх у певний день і на певному рівні
+const hashSeed = (s) => {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
   }
-  for (let i = 0; i < LEN; i++) {
+  return h >>> 0;
+};
+
+const todayKey = () => Math.floor(Date.now() / 86400000);
+const levelKey = (m) => `wordle-level-${todayKey()}-${m}`;
+
+const pickAnswer = (len, level) => {
+  const day = todayKey(); // змінюється раз на добу
+  const list = WORDS[len];
+  return list[hashSeed(`${day}-${len}-${level}`) % list.length];
+};
+
+// Класичний алгоритм Wordle з правильною обробкою повторюваних літер
+function evaluate(guess, answer) {
+  const len = answer.length;
+  const result = Array(len).fill("absent");
+  const left = {};
+  for (let i = 0; i < len; i++) {
+    if (guess[i] === answer[i]) result[i] = "correct";
+    else left[answer[i]] = (left[answer[i]] || 0) + 1;
+  }
+  for (let i = 0; i < len; i++) {
     if (result[i] !== "correct" && left[guess[i]] > 0) {
       result[i] = "present";
       left[guess[i]]--;
@@ -40,12 +60,21 @@ function evaluate(guess) {
 const RANK = { absent: 1, present: 2, correct: 3 };
 
 export default function App() {
+  const [mode, setMode] = useState(5);
+  const [level, setLevel] = useState(() => {
+    const saved = Number(localStorage.getItem(levelKey(5)));
+    return saved > 0 ? saved : 1;
+  });
+  const [answer, setAnswer] = useState(() => pickAnswer(5, level));
   const [guesses, setGuesses] = useState([]);
   const [current, setCurrent] = useState("");
   const [status, setStatus] = useState("playing"); // playing | won | lost
   const [shake, setShake] = useState(false);
   const [toast, setToast] = useState("");
   const toastTimer = useRef();
+
+  const len = mode;
+  const wordSet = useMemo(() => new Set(WORDS[mode]), [mode]);
 
   const showToast = (msg) => {
     setToast(msg);
@@ -55,37 +84,43 @@ export default function App() {
 
   const keyStates = {};
   guesses.forEach((g) => {
-    evaluate(g).forEach((s, i) => {
+    evaluate(g, answer).forEach((s, i) => {
       const ch = g[i];
       if (!keyStates[ch] || RANK[s] > RANK[keyStates[ch]]) keyStates[ch] = s;
     });
   });
 
   const submit = useCallback(() => {
-    if (current.length < LEN) {
+    if (current.length < len) {
       setShake(true);
       setTimeout(() => setShake(false), 500);
       showToast("Недостатньо літер");
       return;
     }
+    if (!wordSet.has(current)) {
+      setShake(true);
+      setTimeout(() => setShake(false), 500);
+      showToast("Такого слова немає в словнику");
+      return;
+    }
     const next = [...guesses, current];
     setGuesses(next);
     setCurrent("");
-    if (current === ANSWER) {
-      setTimeout(() => setStatus("won"), LEN * 300 + 400);
+    if (current === answer) {
+      setTimeout(() => setStatus("won"), len * 300 + 400);
     } else if (next.length === ROWS) {
-      setTimeout(() => setStatus("lost"), LEN * 300 + 400);
+      setTimeout(() => setStatus("lost"), len * 300 + 400);
     }
-  }, [current, guesses]);
+  }, [current, guesses, answer, len, wordSet]);
 
   const press = useCallback(
     (key) => {
       if (status !== "playing") return;
       if (key === "Enter") return submit();
       if (key === "⌫" || key === "Backspace") return setCurrent((c) => c.slice(0, -1));
-      if (current.length < LEN) setCurrent((c) => c + key);
+      if (current.length < len) setCurrent((c) => c + key);
     },
-    [status, submit, current.length]
+    [status, submit, current.length, len]
   );
 
   useEffect(() => {
@@ -104,13 +139,31 @@ export default function App() {
   }, [press]);
 
   const restart = () => {
+    const next = level + 1;
+    setLevel(next);
+    localStorage.setItem(levelKey(mode), String(next));
+    setAnswer(pickAnswer(mode, next));
     setGuesses([]);
     setCurrent("");
     setStatus("playing");
+    setToast("");
+  };
+
+  const changeMode = (m) => {
+    if (m === mode) return;
+    setMode(m);
+    const saved = Number(localStorage.getItem(levelKey(m)));
+    const lvl = saved > 0 ? saved : 1;
+    setLevel(lvl);
+    setAnswer(pickAnswer(m, lvl));
+    setGuesses([]);
+    setCurrent("");
+    setStatus("playing");
+    setToast("");
   };
 
   const rows = Array.from({ length: ROWS }, (_, r) => {
-    if (r < guesses.length) return { letters: guesses[r], states: evaluate(guesses[r]), done: true };
+    if (r < guesses.length) return { letters: guesses[r], states: evaluate(guesses[r], answer), done: true };
     if (r === guesses.length) return { letters: current, states: [], done: false, active: true };
     return { letters: "", states: [], done: false };
   });
@@ -119,15 +172,27 @@ export default function App() {
     <div className="app">
       <header>
         <h1>ПАМ ПАМ</h1>
-        <p>Відгадай слово з {LEN} літер за {ROWS} спроб</p>
+        <div className="modes" role="group" aria-label="Кількість літер">
+          {MODES.map((m) => (
+            <button
+              key={m}
+              className={"mode-btn" + (m === mode ? " active" : "")}
+              onClick={() => changeMode(m)}
+            >
+              {m} літер
+            </button>
+          ))}
+        </div>
+        <p>Рівень {level} — відгадай слово з {len} літер за {ROWS} спроб</p>
+        {import.meta.env.DEV && <p className="debug-word">Слово: {answer}</p>}
       </header>
 
       <div className="toast" aria-live="polite">{toast && <span>{toast}</span>}</div>
 
-      <main className="board" role="grid">
+      <main className="board" role="grid" style={{ "--cols": len }}>
         {rows.map((row, r) => (
           <div key={r} className={"row" + (row.active && shake ? " shake" : "")} role="row">
-            {Array.from({ length: LEN }, (_, i) => {
+            {Array.from({ length: len }, (_, i) => {
               const ch = row.letters[i] || "";
               const cls = ["tile"];
               if (row.done) cls.push("flip", row.states[i]);
@@ -147,9 +212,10 @@ export default function App() {
           <p>
             {status === "won"
               ? `Вгадано за ${guesses.length} ${guesses.length === 1 ? "спробу" : guesses.length < 5 ? "спроби" : "спроб"}!`
-              : <>Спроби скінчились. Слово: <b>{ANSWER.toUpperCase()}</b></>}
+              : "Спроби скінчились."}
           </p>
-          <button onClick={restart}>Грати знову</button>
+          <p className="answer">Правильне слово: <b>{answer.toUpperCase()}</b></p>
+          <button onClick={restart}>Наступний рівень</button>
         </section>
       )}
 
