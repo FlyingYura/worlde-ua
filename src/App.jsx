@@ -35,10 +35,36 @@ const levelKey = (m) => `wordle-level-${todayKey()}-${m}`;
 const hintKey = (m) => `wordle-hint-${todayKey()}-${m}`;
 const HINT_INTERVAL = 4; // 1 підказка на 4 рівні
 
+// Детермінований ГПВЧ: однаковий у всіх користувачів для одного насіння
+const mulberry32 = (seed) => () => {
+  seed |= 0;
+  seed = (seed + 0x6d2b79f5) | 0;
+  let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+};
+
+// Перемішаний список слів на день: Fisher–Yates з насінням (дата + довжина).
+// Однаковий у всіх гравців, слова не повторюються, доки не скінчаться всі.
+const dailyListCache = new Map();
+const getDailyList = (len) => {
+  const key = `${todayKey()}-${len}`;
+  if (!dailyListCache.has(key)) {
+    if (dailyListCache.size > 50) dailyListCache.clear();
+    const arr = [...WORDS[len]];
+    const rand = mulberry32(hashSeed(key));
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(rand() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    dailyListCache.set(key, arr);
+  }
+  return dailyListCache.get(key);
+};
+
 const pickAnswer = (len, level) => {
-  const day = todayKey(); // змінюється раз на добу
-  const list = WORDS[len];
-  return list[hashSeed(`${day}-${len}-${level}`) % list.length];
+  const list = getDailyList(len);
+  return list[(level - 1) % list.length];
 };
 
 // Класичний алгоритм Wordle з правильною обробкою повторюваних літер
